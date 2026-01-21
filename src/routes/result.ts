@@ -1,5 +1,4 @@
 import { json, error } from "../core/response"
-import { insertResult } from "../storage/results"
 
 export async function submitResult(
   request: Request,
@@ -22,21 +21,18 @@ export async function submitResult(
     return error("Invalid JSON", 400)
   }
 
-  if (
-    !body.agentId ||
-    !body.commandId ||
-    typeof body.output !== "string"
-  ) {
+  if (!body.agentId || !body.commandId || typeof body.output !== "string") {
     return error("Invalid payload", 400)
   }
 
-  await insertResult(env.RESULTS_DB, {
-    id: crypto.randomUUID(),
-    agentId: body.agentId,
-    commandId: body.commandId,
-    output: body.output,
-    createdAt: new Date().toISOString()
-  })
+  await env.RESULTS_DB.prepare(`
+    INSERT INTO command_results (agent_id, command_id, output)
+    VALUES (?, ?, ?)
+  `).bind(
+    body.agentId,
+    body.commandId,
+    body.output
+  ).run()
 
   return json({ ok: true })
 }

