@@ -1,6 +1,7 @@
 import { requireAdmin } from "../core/auth"
 import { json, error } from "../core/response"
 import { readResults } from "../storage/readResults"
+import { Env } from "../types/env"
 
 export async function getResults(
   request: Request,
@@ -23,11 +24,16 @@ export async function getResults(
   if (!Number.isFinite(limit) || limit <= 0) limit = 20
   if (limit > 100) limit = 100
 
-  const data = await readResults(env.RESULTS_DB, {
-    agentId,
-    cursor,
-    limit
-  })
+  try {
+    const data = await readResults(env.RESULTS_DB, {
+      agentId,
+      cursor,
+      limit
+    })
 
-  return json(data)
+    return json(data)
+  } catch (err) {
+    console.error('Error reading results:', err)
+    return error("Failed to read results", 500)
+  }
 }

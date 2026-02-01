@@ -1,3 +1,5 @@
+import { Env } from "../types/env"
+
 export function requireAdmin(
   request: Request,
   env: Env

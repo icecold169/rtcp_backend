@@ -4,7 +4,11 @@ import { issueCommand } from "./routes/command"
 import { submitResult } from "./routes/result"
 import { getResults } from "./routes/results"
 
-
+export interface Env {
+  ADMIN_TOKEN: string
+  C2_STORAGE: KVNamespace
+  RESULTS_DB: D1Database
+}
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
